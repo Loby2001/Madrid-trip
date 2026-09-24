@@ -6,7 +6,7 @@ Mappa personale dei luoghi da vedere a Madrid, con posizione GPS in tempo reale 
 
 1. Carica **tutti** i file e la cartella `vendor/` nella root del repository.
 2. Settings → Pages → Source: branch `main`, cartella `/ (root)`.
-3. L'app sarà su `https://<utente>.github.io/<nome-repo>/`.
+3. L'app sarà su `https://loby2001.github.io/Madrid-trip/`.
 
 ## Installazione sul telefono
 
