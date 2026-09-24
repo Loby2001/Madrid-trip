@@ -90,6 +90,53 @@
     transform: rotate(45deg);
     font-size: 15px;
   }
+  .popup-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 2px;
+  }
+  .popup-link.dir {
+    color: #2471a3;
+  }
+  .locate-btn {
+    position: absolute;
+    z-index: 500;
+    bottom: 90px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    cursor: pointer;
+  }
+  .locate-btn.active { color: #2471a3; border-color: #2471a3; }
+  .user-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #2471a3;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 2px #2471a3, 0 1px 4px rgba(0,0,0,0.4);
+  }
+  #geo-status {
+    position: absolute;
+    z-index: 500;
+    bottom: 90px;
+    left: 10px;
+    right: 64px;
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    font-size: 0.78rem;
+    padding: 6px 10px;
+    border-radius: 8px;
+    display: none;
+  }
 </style>
 </head>
 <body>
@@ -100,6 +147,8 @@
 </header>
 
 <div id="map"></div>
+<div id="geo-status"></div>
+<button id="locate-btn" class="locate-btn" title="La mia posizione">📍</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -179,13 +228,27 @@ function makeIcon(cat) {
 const layers = {};
 Object.keys(categories).forEach(cat => { layers[cat] = L.layerGroup().addTo(map); });
 
+function directionsUrl(p) {
+  // Se conosciamo la posizione dell'utente la passiamo come origine,
+  // altrimenti lasciamo che Google Maps usi la posizione attuale del telefono.
+  const dest = `${p.lat},${p.lng}`;
+  if (userLatLng) {
+    return `https://www.google.com/maps/dir/?api=1&origin=${userLatLng.lat},${userLatLng.lng}&destination=${dest}&travelmode=walking`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking`;
+}
+
+function popupHtml(p) {
+  const notesHtml = p.notes ? `<div class="popup-notes">${p.notes}</div>` : '';
+  return `<div class="popup-title">${p.name}</div>${notesHtml}<div class="popup-actions"><a class="popup-link" href="${p.url}" target="_blank" rel="noopener">Apri in Maps ↗</a><a class="popup-link dir" href="${directionsUrl(p)}" target="_blank" rel="noopener">🧭 Indicazioni</a></div>`;
+}
+
+const markersByPlace = [];
 places.forEach(p => {
   const marker = L.marker([p.lat, p.lng], { icon: makeIcon(p.cat) });
-  const notesHtml = p.notes ? `<div class="popup-notes">${p.notes}</div>` : '';
-  marker.bindPopup(
-    `<div class="popup-title">${p.name}</div>${notesHtml}<a class="popup-link" href="${p.url}" target="_blank" rel="noopener">Apri in Google Maps ↗</a>`
-  );
+  marker.bindPopup(popupHtml(p));
   marker.addTo(layers[p.cat]);
+  markersByPlace.push({ p, marker });
 });
 
 const filtersEl = document.getElementById('filters');
@@ -236,6 +299,85 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
+
+// --- Posizione dell'utente ---
+let userLatLng = null;
+let userMarker = null;
+let watchId = null;
+const locateBtn = document.getElementById('locate-btn');
+const geoStatus = document.getElementById('geo-status');
+
+function showStatus(text, autoHide) {
+  geoStatus.textContent = text;
+  geoStatus.style.display = 'block';
+  if (autoHide) setTimeout(() => { geoStatus.style.display = 'none'; }, 3000);
+}
+
+function refreshPopups() {
+  // Rigenera i link "Indicazioni" di ogni marker con l'origine aggiornata
+  markersByPlace.forEach(({ p, marker }) => {
+    marker.setPopupContent(popupHtml(p));
+  });
+}
+
+function onPosition(pos, { recenter } = {}) {
+  const { latitude, longitude } = pos.coords;
+  userLatLng = { lat: latitude, lng: longitude };
+
+  if (!userMarker) {
+    userMarker = L.marker([latitude, longitude], {
+      icon: L.divIcon({ className: '', html: '<div class="user-dot"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),
+      zIndexOffset: 1000
+    }).addTo(map);
+    userMarker.bindPopup('Sei qui');
+  } else {
+    userMarker.setLatLng([latitude, longitude]);
+  }
+
+  if (recenter) {
+    map.setView([latitude, longitude], 15);
+  }
+
+  refreshPopups();
+  showStatus('Posizione aggiornata ✓', true);
+}
+
+function onPositionError(err) {
+  let msg = 'Non riesco ad accedere alla posizione.';
+  if (err.code === err.PERMISSION_DENIED) msg = 'Permesso posizione negato. Abilitalo nelle impostazioni del browser.';
+  showStatus(msg, true);
+  locateBtn.classList.remove('active');
+}
+
+locateBtn.addEventListener('click', () => {
+  if (!('geolocation' in navigator)) {
+    showStatus('Geolocalizzazione non supportata su questo dispositivo.', true);
+    return;
+  }
+
+  if (watchId !== null) {
+    // Disattiva il tracking continuo
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    locateBtn.classList.remove('active');
+    showStatus('Tracking posizione disattivato', true);
+    return;
+  }
+
+  showStatus('Rilevamento posizione…');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => onPosition(pos, { recenter: true }),
+    onPositionError,
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => onPosition(pos, { recenter: false }),
+    onPositionError,
+    { enableHighAccuracy: true, maximumAge: 5000 }
+  );
+  locateBtn.classList.add('active');
+});
 </script>
 </body>
 </html>
