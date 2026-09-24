@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Madrid</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#c0392b">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Madrid">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+  :root {
+    --bg: #faf7f2;
+    --card: #ffffff;
+    --text: #2b2b2b;
+    --muted: #767676;
+    --accent: #c0392b;
+    --blue: #1a73e8;
+    --border: #e6e0d6;
+    --shadow: 0 2px 10px rgba(0,0,0,0.18);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+  body {
+    position: fixed;
+    inset: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+  button { font: inherit; color: inherit; }
+
+  header {
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 8px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    z-index: 1000;
+  }
+  .title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  header h1 { margin: 0; font-size: 1.15rem; }
+  #gps-pill {
+    font-size: 0.72rem;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #eee;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  #gps-pill.ok { background: #e3f0ff; color: var(--blue); }
+  #gps-pill.err { background: #fde8e6; color: var(--accent); }
+
+  #filters { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #filters::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #map { flex: 1; width: 100%; }
+
+  /* Pulsanti flottanti */
+  .fab {
+    position: absolute;
+    z-index: 1000;
+    right: 12px;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--card);
+    border: none;
+    box-shadow: var(--shadow);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px;
+  }
+  #btn-center { bottom: calc(84px + var(--safe-bottom)); }
+  #btn-center.following { color: var(--blue); }
+  #btn-center svg { width: 22px; height: 22px; }
+  #btn-list {
+    position: absolute; z-index: 1000;
+    left: 50%; transform: translateX(-50%);
+    bottom: calc(20px + var(--safe-bottom));
+    background: var(--text); color: #fff;
+    border: none; border-radius: 999px;
+    padding: 12px 20px;
+    font-weight: 600; font-size: 0.92rem;
+    box-shadow: var(--shadow);
+  }
+
+  /* Marker luoghi */
+  .pin {
+    width: 32px; height: 32px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pin span { transform: rotate(45deg); font-size: 15px; }
+
+  /* Marker utente */
+  .me-wrap { position: relative; width: 22px; height: 22px; }
+  .me-dot {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: var(--blue);
+    border: 3px solid #fff;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+  }
+  .me-pulse {
+    position: absolute; inset: -10px;
+    border-radius: 50%;
+    background: rgba(26,115,232,0.25);
+    animation: pulse 2s ease-out infinite;
+  }
+  .me-heading {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 0; height: 0;
+    margin-left: -9px; margin-top: -30px;
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-bottom: 22px solid rgba(26,115,232,0.55);
+    transform-origin: 9px 30px;
+    display: none;
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+
+  /* Bottom sheet */
+  .sheet {
+    position: absolute; z-index: 1100;
+    left: 0; right: 0; bottom: 0;
+    background: var(--card);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+    padding: 10px 16px calc(16px + var(--safe-bottom));
+    transform: translateY(110%);
+    visibility: hidden;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
+    max-height: 70vh;
+    display: flex; flex-direction: column;
+  }
+  .sheet.open { transform: translateY(0); visibility: visible; transition: transform 0.25s ease, visibility 0s; }
+  .grabber { width: 40px; height: 5px; border-radius: 3px; background: #ddd; margin: 0 auto 10px; flex: none; }
+  .sheet-close {
+    position: absolute; top: 8px; right: 10px;
+    border: none; background: #f0f0f0; border-radius: 50%;
+    width: 30px; height: 30px; font-size: 15px; line-height: 30px;
+  }
+
+  #place-sheet .cat { font-size: 0.78rem; color: var(--muted); margin-bottom: 2px; }
+  #place-sheet h2 { margin: 0 36px 4px 0; font-size: 1.2rem; }
+  #place-sheet .notes { font-size: 0.88rem; color: var(--muted); margin: 0 0 8px; }
+  #place-sheet .dist { font-size: 0.88rem; margin-bottom: 12px; }
+  .go-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    background: var(--blue); color: #fff;
+    text-decoration: none;
+    font-weight: 700; font-size: 1.05rem;
+    padding: 14px; border-radius: 12px;
+  }
+  .secondary-row { display: flex; gap: 8px; margin-top: 8px; }
+  .secondary-row a, .secondary-row button {
+    flex: 1; text-align: center; text-decoration: none;
+    font-size: 0.85rem; font-weight: 600;
+    padding: 10px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+
+  .mode-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .mode-row button {
+    flex: 1; padding: 8px 4px; font-size: 0.8rem;
+    border: 1px solid var(--border); background: var(--bg); border-radius: 8px;
+  }
+  .mode-row button.active { background: #e3f0ff; border-color: var(--blue); color: var(--blue); font-weight: 600; }
+
+  #list-sheet h2 { margin: 0 0 4px; font-size: 1.1rem; }
+  #list-sheet .sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 8px; }
+  #list { overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 0 16px; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0ece5;
+  }
+  .row .ico { font-size: 20px; width: 28px; text-align: center; flex: none; }
+  .row .info { flex: 1; min-width: 0; }
+  .row .name { font-weight: 600; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .meta { font-size: 0.76rem; color: var(--muted); }
+  .row .go {
+    flex: none;
+    background: var(--blue); color: #fff; text-decoration: none;
+    font-weight: 700; font-size: 0.85rem;
+    padding: 9px 14px; border-radius: 999px;
+  }
+
+  #toast {
+    position: absolute; z-index: 1200;
+    top: 120px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.8); color: #fff;
+    font-size: 0.82rem; padding: 8px 14px; border-radius: 10px;
+    max-width: 90%; text-align: center;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <h1>🇪🇸 Madrid</h1>
+    <span id="gps-pill">GPS…</span>
+  </div>
+  <div id="filters"></div>
+</header>
+
+<div id="map"></div>
+
+<button id="btn-center" class="fab" aria-label="Centra sulla mia posizione">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+</button>
+<button id="btn-list">📍 Vicino a me</button>
+
+<div id="place-sheet" class="sheet" aria-hidden="true">
+  <div class="grabber"></div>
+  <button class="sheet-close" data-close="place-sheet" aria-label="Chiudi">✕</button>
+  <div class="cat" id="ps-cat"></div>
+  <h2 id="ps-name"></h2>
+  <p class="notes" id="ps-notes"></p>
+  <div class="dist" id="ps-dist"></div>
+  <div class="mode-row" id="ps-modes"></div>
+  <a id="ps-go" class="go-btn" target="_blank" rel="noopener">🧭 Portami qui</a>
+  <div class="secondary-row">
+    <a id="ps-info" target="_blank" rel="noopener">Scheda su Maps</a>
+  </div>
+</div>
+
+<div id="list-sheet" class="sheet" aria-hidden="true">
+  <div class="grabber"></div>
+  <button class="sheet-close" data-close="list-sheet" aria-label="Chiudi">✕</button>
+  <h2>Vicino a me</h2>
+  <div class="sub" id="list-sub"></div>
+  <div class="mode-row" id="list-modes"></div>
+  <div id="list"></div>
+</div>
+
+<div id="toast"></div>
+
+<script src="vendor/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------------- Dati ----------------
+  const CATEGORIES = {
+    visite:  { label: "Da visitare", color: "#2c7a4b", icon: "🏛️" },
+    musei:   { label: "Musei",       color: "#7d3c98", icon: "🖼️" },
+    mercati: { label: "Mercati",     color: "#d68910", icon: "🧺" },
+    cibo:    { label: "Da mangiare", color: "#c0392b", icon: "🍽️" },
+    rooftop: { label: "Rooftop",     color: "#2471a3", icon: "🌇" },
+    extra:   { label: "Bici & parchi", color: "#16a085", icon: "🚲" }
+  };
+
+  const PLACES = [
+    { name: "El Rastro", cat: "visite", lat: 40.4069918, lng: -3.7072631, pid: "ChIJf6DpUQAnQg0RKe9h6aDjw-c", notes: "Solo domenica mattina (9–15). Mercatino, vestiti, mobili, tapas e ottimo ambiente." },
+    { name: "Real Jardín Botánico", cat: "visite", lat: 40.4111064, lng: -3.6911267, pid: "ChIJi_NS7icmQg0RK8FepNiBeSk", notes: "" },
+    { name: "Palacio de Cristal (Retiro)", cat: "visite", lat: 40.4136352, lng: -3.6819997, pid: "ChIJmy6-B6AoQg0RWfqNzFXrq3k", notes: "In restauro fino al 2027: si vede solo da fuori, ma il laghetto merita." },
+    { name: "Rosaleda del Retiro", cat: "visite", lat: 40.4107901, lng: -3.6803226, pid: "ChIJ6dUfAx8mQg0RYjyqOfu9Lng", notes: "" },
+    { name: "Gran Vía", cat: "visite", lat: 40.418946, lng: -3.6969034, pid: "ChIJM9-jbX0oQg0RIV1MiW1AGeE", notes: "Da percorrere a piedi fino a Callao e Plaza de España." },
+    { name: "Plaza de España", cat: "visite", lat: 40.4236051, lng: -3.7132356, pid: "ChIJlYIB-28oQg0Ra1v7bI12cCQ", notes: "" },
+    { name: "Plaza de Cibeles", cat: "visite", lat: 40.4193432, lng: -3.6930919, pid: "ChIJQzimtoQoQg0RqO2I0nyFVGo", notes: "" },
+    { name: "Palacio Real", cat: "visite", lat: 40.417955, lng: -3.714312, pid: "ChIJwamkfX4oQg0RUUjO1nnsfy4", notes: "" },
+    { name: "Catedral de la Almudena", cat: "visite", lat: 40.415651, lng: -3.714552, pid: "ChIJI_FYeHcoQg0RcqwG5gDs3H8", notes: "" },
+    { name: "Jardines de Sabatini", cat: "visite", lat: 40.420332, lng: -3.714004, pid: "ChIJ360xd3ooQg0REafNBGVirg0", notes: "" },
+    { name: "Templo de Debod", cat: "visite", lat: 40.4240216, lng: -3.7177695, pid: "ChIJWRLqi24oQg0RqwZ3SsbZah0", notes: "Tramonto bellissimo." },
+    { name: "Barrio de las Letras", cat: "visite", lat: 40.4146577, lng: -3.6995554, pid: "ChIJE5MzAYEoQg0RPPfbSrJKa6Y", notes: "" },
+    { name: "Plaza del Dos de Mayo (Malasaña)", cat: "visite", lat: 40.4267066, lng: -3.7041056, pid: "ChIJMx4OFWIoQg0RzV0_CVxQ5WY", notes: "" },
+    { name: "Plaza de Chueca", cat: "visite", lat: 40.4229141, lng: -3.6976142, pid: "ChIJ8brT4oUoQg0RnK8dCHPbLSM", notes: "" },
+
+    { name: "Museo Reina Sofía", cat: "musei", lat: 40.4079123, lng: -3.6945569, pid: "ChIJvQc62ygmQg0Rcb-6WdEUmDA", notes: "Guernica. Se c'è tempo per un solo museo, questo. Chiuso il martedì." },
+    { name: "Museo del Prado", cat: "musei", lat: 40.4137818, lng: -3.6921271, pid: "ChIJ7aLYZp0oQg0RWoitk33wlBA", notes: "Arte più antica." },
+    { name: "Espacio Fundación Telefónica", cat: "musei", lat: 40.420392, lng: -3.7017747, pid: "ChIJoZvZCocoQg0RZ7xwTfjKMws", notes: "Mostre brevi e interessanti, edificio tipico. Ingresso gratuito, chiuso il lunedì." },
+
+    { name: "Mercado de San Miguel", cat: "mercati", lat: 40.4153794, lng: -3.7089697, pid: "ChIJLW4ZIXkoQg0R6JDRTdPmLxY", notes: "Bello ed emblematico, ma turistico e caro: meglio non mangiare qui." },
+    { name: "Mercado de San Antón", cat: "mercati", lat: 40.4220799, lng: -3.6976883, pid: "ChIJ0RbRyv0pQg0RS9u2jqDIbOE", notes: "" },
+    { name: "Mercado de San Fernando (Lavapiés)", cat: "mercati", lat: 40.4076318, lng: -3.7038442, pid: "ChIJu_erQjImQg0RSGdXtET1-HU", notes: "Il mercato di Lavapiés." },
+    { name: "Mercado de la Cebada", cat: "mercati", lat: 40.4109912, lng: -3.7098772, pid: "ChIJlyS4XdYnQg0R0HvNvGO4seU", notes: "Chiuso la domenica." },
+    { name: "Mercado de la Paz", cat: "mercati", lat: 40.4273724, lng: -3.6857317, pid: "ChIJ7fF3jpYoQg0RcfOxYBExJrY", notes: "Dentro c'è Casa Dani. Chiuso la domenica." },
+
+    { name: "Chocolatería San Ginés", cat: "cibo", lat: 40.4167385, lng: -3.7069356, pid: "ChIJHeRevn4oQg0R1cMSLDTWlWg", notes: "Churros con chocolate. Aperto 24h." },
+    { name: "Casa Julio", cat: "cibo", lat: 40.4242824, lng: -3.703693, pid: "ChIJoT1qvWIoQg0Rx4BO0gNnq-A", notes: "Tapas, molto amato dai madrileni. Non si prenota." },
+    { name: "Varra", cat: "cibo", lat: 40.426687, lng: -3.688484, pid: "ChIJiZAylTwpQg0RCCyNBjUDAY4", notes: "Tapas." },
+    { name: "Casa Macareno", cat: "cibo", lat: 40.4259636, lng: -3.7047437, pid: "ChIJBYaXUGIoQg0RAIlKM0o3jio", notes: "Tapas. Meglio prenotare." },
+    { name: "El Viajero", cat: "cibo", lat: 40.4116602, lng: -3.710201, pid: "ChIJ3RyHM9YnQg0RDiSnCw1oQxo", notes: "Tapas, terrazza a La Latina." },
+    { name: "En Bruto", cat: "cibo", lat: 40.423743, lng: -3.6959626, pid: "ChIJPf4gBngpQg0RjyW7K4FYNsg", notes: "Colazione / caffè." },
+    { name: "La Desayunería", cat: "cibo", lat: 40.4206565, lng: -3.6981988, pid: "ChIJYfV50MMpQg0RQIz89Oib2Go", notes: "Colazione / caffè." },
+    { name: "La Duquesita", cat: "cibo", lat: 40.4257273, lng: -3.6970027, pid: "ChIJJzCm2I4oQg0RL41Llagec-Q", notes: "Colazione / pasticceria." },
+    { name: "Juana la Loca", cat: "cibo", lat: 40.4217767, lng: -3.6903157, pid: "ChIJHfkdyNcnQg0RTaFKOejctbU", notes: "Tortilla. Chiuso il lunedì." },
+    { name: "Sylkar", cat: "cibo", lat: 40.4407096, lng: -3.6973519, pid: "ChIJ05ipLvEoQg0RtEDeF_6dIFc", notes: "Tortilla (Chamberí)." },
+    { name: "Casa Dani", cat: "cibo", lat: 40.4270238, lng: -3.6856626, pid: "ChIJC_F3jpYoQg0RfqR_lVosOdM", notes: "Tortilla, dentro il Mercado de la Paz. Chiuso la domenica." },
+    { name: "Tortillas de Gabino", cat: "cibo", lat: 40.4338707, lng: -3.6938244, pid: "ChIJtxP3tvIoQg0R8vW7cUOKZ_I", notes: "Tortilla (Chamberí). Chiuso la domenica." },
+    { name: "La Buganvilla", cat: "cibo", lat: 40.4287522, lng: -3.6943202, pid: "ChIJjVq3240oQg0RgI4jKQuxB_I", notes: "Paella." },
+    { name: "Malacatín", cat: "cibo", lat: 40.4103131, lng: -3.7076678, pid: "ChIJDXN309UnQg0RL1gFC7pdDGk", notes: "Cocido madrileño. Meglio prenotare." },
+    { name: "El Niño Pastor", cat: "cibo", lat: 40.4349182, lng: -3.7062846, pid: "ChIJ-WR0y7IpQg0RU88ihINkais", notes: "Per una caña (Chamberí). Chiuso la domenica." },
+
+    { name: "Azotea del Círculo de Bellas Artes", cat: "rooftop", lat: 40.4183253, lng: -3.6964847, pid: "ChIJs-b4dIQoQg0RppCQ716gG_w", notes: "" },
+    { name: "360º Rooftop Hotel RIU Plaza España", cat: "rooftop", lat: 40.4242145, lng: -3.7107177, pid: "ChIJUxgNVHQpQg0RiQnAhV-ojBw", notes: "Ingresso a pagamento." },
+    { name: "Mirador Palacio de Cibeles (Ayuntamiento)", cat: "rooftop", lat: 40.4188537, lng: -3.6919631, pid: "ChIJY4IWkCIpQg0RXPVabPwKo3M", notes: "Chiuso il lunedì. Biglietto economico." },
+    { name: "ABC Serrano", cat: "rooftop", lat: 40.4321406, lng: -3.6870326, pid: "ChIJ9weJk5QoQg0Rc7sC66q51eA", notes: "Non per la vista, ma per bere qualcosa." },
+
+    { name: "My Bike River (noleggio bici)", cat: "extra", lat: 40.421971, lng: -3.7228356, pid: "ChIJU3hmv3IoQg0RDOEtBTJa4uc", notes: "Noleggia una bici e segui il fiume fino a Casa de Campo." },
+    { name: "Parque Madrid Río", cat: "extra", lat: 40.4130932, lng: -3.7234566, pid: "ChIJ2-g6D00nQg0RF76FgrJL1rA", notes: "Pista lungo il fiume." },
+    { name: "Casa de Campo", cat: "extra", lat: 40.4252589, lng: -3.7526816, pid: "ChIJtRbzP-2HQQ0RJx9XvRW6qLw", notes: "" }
+  ];
+
+  const MODES = [
+    { key: "walking",   label: "🚶 A piedi" },
+    { key: "transit",   label: "🚇 Mezzi" },
+    { key: "bicycling", label: "🚲 Bici" },
+    { key: "driving",   label: "🚕 Auto" }
+  ];
+
+  // ---------------- Stato ----------------
+  let me = null;             // { lat, lng, acc, heading }
+  let following = false;     // la mappa segue la mia posizione
+  let firstFix = true;
+  let selected = null;       // luogo aperto nella scheda
+  let mode = "walking";
+  const activeCats = new Set(Object.keys(CATEGORIES));
+
+  try { mode = localStorage.getItem("mode") || "walking"; } catch (e) {}
+
+  // ---------------- Utility ----------------
+  const $ = (id) => document.getElementById(id);
+
+  function toast(msg, ms) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { t.style.display = "none"; }, ms || 2500);
+  }
+
+  function distanceM(a, b) {
+    const R = 6371000, rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+
+  function fmtDist(m) {
+    return m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`;
+  }
+
+  function fmtWalk(m) {
+    // distanza in linea d'aria × 1.3 per le strade, ~4.8 km/h
+    const min = Math.max(1, Math.round((m * 1.3) / 80));
+    return min < 60 ? `${min} min a piedi` : `${Math.floor(min / 60)} h ${min % 60} min a piedi`;
+  }
+
+  // Link Google Maps che apre direttamente la navigazione dalla posizione attuale del telefono
+  function directionsUrl(p) {
+    const params = new URLSearchParams({
+      api: "1",
+      destination: `${p.name}, Madrid`,
+      destination_place_id: p.pid,
+      travelmode: mode,
+      dir_action: "navigate"
+    });
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  }
+
+  function placeUrl(p) {
+    const params = new URLSearchParams({ api: "1", query: `${p.name}, Madrid`, query_place_id: p.pid });
+    return `https://www.google.com/maps/search/?${params.toString()}`;
+  }
+
+  // ---------------- Mappa ----------------
+  const map = L.map("map", { zoomControl: false, attributionControl: true }).setView([40.4189, -3.7040], 14);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap"
+  }).addTo(map);
+
+  // Se l'utente trascina la mappa smettiamo di seguirlo
+  map.on("dragstart", () => setFollowing(false));
+
+  const layers = {};
+  Object.keys(CATEGORIES).forEach((c) => { layers[c] = L.layerGroup().addTo(map); });
+
+  PLACES.forEach((p) => {
+    const c = CATEGORIES[p.cat];
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="pin" style="background:${c.color}"><span>${c.icon}</span></div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32]
+    });
+    p.marker = L.marker([p.lat, p.lng], { icon, title: p.name }).addTo(layers[p.cat]);
+    p.marker.on("click", () => openPlace(p));
+  });
+
+  // ---------------- Filtri ----------------
+  const filtersEl = $("filters");
+  const allChip = document.createElement("button");
+  allChip.className = "chip active";
+  allChip.textContent = "Tutti";
+  filtersEl.appendChild(allChip);
+
+  const chipEls = {};
+  Object.entries(CATEGORIES).forEach(([key, c]) => {
+    const b = document.createElement("button");
+    b.className = "chip active";
+    b.textContent = `${c.icon} ${c.label}`;
+    filtersEl.appendChild(b);
+    chipEls[key] = b;
+    b.addEventListener("click", () => {
+      if (activeCats.has(key)) { activeCats.delete(key); map.removeLayer(layers[key]); b.classList.remove("active"); }
+      else { activeCats.add(key); map.addLayer(layers[key]); b.classList.add("active"); }
+      allChip.classList.toggle("active", activeCats.size === Object.keys(CATEGORIES).length);
+      renderList();
+    });
+  });
+
+  allChip.addEventListener("click", () => {
+    const turnOn = activeCats.size !== Object.keys(CATEGORIES).length;
+    Object.keys(CATEGORIES).forEach((key) => {
+      if (turnOn) { activeCats.add(key); map.addLayer(layers[key]); chipEls[key].classList.add("active"); }
+      else { activeCats.delete(key); map.removeLayer(layers[key]); chipEls[key].classList.remove("active"); }
+    });
+    allChip.classList.toggle("active", turnOn);
+    renderList();
+  });
+
+  // ---------------- Selettore mezzo ----------------
+  function renderModes(containerId) {
+    const el = $(containerId);
+    el.innerHTML = "";
+    MODES.forEach((m) => {
+      const b = document.createElement("button");
+      b.textContent = m.label;
+      b.className = m.key === mode ? "active" : "";
+      b.addEventListener("click", () => {
+        mode = m.key;
+        try { localStorage.setItem("mode", mode); } catch (e) {}
+        renderModes("ps-modes");
+        renderModes("list-modes");
+        if (selected) $("ps-go").href = directionsUrl(selected);
+        renderList();
+      });
+      el.appendChild(b);
+    });
+  }
+
+  // ---------------- Schede (bottom sheet) ----------------
+  function openSheet(id) {
+    ["place-sheet", "list-sheet"].forEach((s) => {
+      $(s).classList.toggle("open", s === id);
+      $(s).setAttribute("aria-hidden", s === id ? "false" : "true");
+    });
+  }
+  function closeSheets() {
+    ["place-sheet", "list-sheet"].forEach((s) => { $(s).classList.remove("open"); $(s).setAttribute("aria-hidden", "true"); });
+    selected = null;
+  }
+  document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closeSheets));
+  map.on("click", closeSheets);
+
+  function openPlace(p) {
+    selected = p;
+    const c = CATEGORIES[p.cat];
+    $("ps-cat").textContent = `${c.icon} ${c.label}`;
+    $("ps-name").textContent = p.name;
+    $("ps-notes").textContent = p.notes || "";
+    $("ps-notes").style.display = p.notes ? "block" : "none";
+    updatePlaceDistance();
+    renderModes("ps-modes");
+    $("ps-go").href = directionsUrl(p);
+    $("ps-info").href = placeUrl(p);
+    openSheet("place-sheet");
+  }
+
+  function updatePlaceDistance() {
+    if (!selected) return;
+    if (me) {
+      const d = distanceM(me, selected);
+      $("ps-dist").textContent = `📏 ${fmtDist(d)} · circa ${fmtWalk(d)}`;
+    } else {
+      $("ps-dist").textContent = "📏 Attiva la posizione per vedere la distanza";
+    }
+  }
+
+  // Lista "Vicino a me": un tap su "Vai" apre subito la navigazione
+  function renderList() {
+    if (!$("list-sheet").classList.contains("open")) return;
+    const list = $("list");
+    const visible = PLACES.filter((p) => activeCats.has(p.cat));
+    if (me) {
+      visible.forEach((p) => { p._d = distanceM(me, p); });
+      visible.sort((a, b) => a._d - b._d);
+      $("list-sub").textContent = `${visible.length} luoghi, ordinati per distanza. Tocca "Vai" per partire.`;
+    } else {
+      $("list-sub").textContent = "Posizione non disponibile: lista non ordinata per distanza.";
+    }
+    list.innerHTML = "";
+    visible.forEach((p) => {
+      const c = CATEGORIES[p.cat];
+      const row = document.createElement("div");
+      row.className = "row";
+      const meta = me ? `${fmtDist(p._d)} · ${fmtWalk(p._d)}` : c.label;
+
+      const ico = document.createElement("div"); ico.className = "ico"; ico.textContent = c.icon;
+      const info = document.createElement("div"); info.className = "info";
+      const name = document.createElement("div"); name.className = "name"; name.textContent = p.name;
+      const m = document.createElement("div"); m.className = "meta"; m.textContent = meta;
+      info.append(name, m);
+      info.addEventListener("click", () => {
+        map.setView([p.lat, p.lng], 16);
+        setFollowing(false);
+        openPlace(p);
+      });
+      const go = document.createElement("a");
+      go.className = "go"; go.textContent = "Vai";
+      go.href = directionsUrl(p); go.target = "_blank"; go.rel = "noopener";
+
+      row.append(ico, info, go);
+      list.appendChild(row);
+    });
+  }
+
+  $("btn-list").addEventListener("click", () => {
+    openSheet("list-sheet");
+    renderModes("list-modes");
+    renderList();
+    $("list").scrollTop = 0;
+  });
+
+  // ---------------- Posizione in tempo reale ----------------
+  const pill = $("gps-pill");
+  const centerBtn = $("btn-center");
+  let meMarker = null, accCircle = null, headingEl = null;
+
+  function setFollowing(on) {
+    following = on;
+    centerBtn.classList.toggle("following", on);
+  }
+
+  function onPosition(pos) {
+    const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+    me = { lat: latitude, lng: longitude, acc: accuracy };
+    const ll = [latitude, longitude];
+
+    if (!meMarker) {
+      const icon = L.divIcon({
+        className: "",
+        html: '<div class="me-wrap"><div class="me-heading"></div><div class="me-pulse"></div><div class="me-dot"></div></div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+      accCircle = L.circle(ll, { radius: accuracy, color: "#1a73e8", weight: 1, fillColor: "#1a73e8", fillOpacity: 0.1, interactive: false }).addTo(map);
+      meMarker = L.marker(ll, { icon, zIndexOffset: 2000, interactive: false }).addTo(map);
+      headingEl = meMarker.getElement().querySelector(".me-heading");
+    } else {
+      meMarker.setLatLng(ll);
+      accCircle.setLatLng(ll).setRadius(accuracy);
+    }
+
+    // Freccia di direzione quando ci si muove
+    if (headingEl) {
+      if (heading !== null && !isNaN(heading) && speed && speed > 0.5) {
+        headingEl.style.display = "block";
+        headingEl.style.transform = `rotate(${heading}deg)`;
+      } else {
+        headingEl.style.display = "none";
+      }
+    }
+
+    pill.className = "ok";
+    pill.textContent = `GPS ±${Math.round(accuracy)} m`;
+
+    if (firstFix) {
+      firstFix = false;
+      setFollowing(true);
+      map.setView(ll, 16);
+    } else if (following) {
+      map.panTo(ll, { animate: true });
+    }
+
+    updatePlaceDistance();
+    throttledList();
+  }
+
+  let listTimer = null;
+  function throttledList() {
+    if (listTimer) return;
+    listTimer = setTimeout(() => { listTimer = null; renderList(); }, 3000);
+  }
+
+  function onPositionError(err) {
+    pill.className = "err";
+    if (err.code === 1) {
+      pill.textContent = "GPS negato";
+      toast("Permesso posizione negato. Attivalo nelle impostazioni del browser (Safari/Chrome → Posizione → Consenti) e ricarica.", 6000);
+    } else if (err.code === 3) {
+      pill.textContent = "GPS in attesa…";
+    } else {
+      pill.textContent = "GPS non disponibile";
+    }
+  }
+
+  let watchId = null;
+  function startTracking() {
+    if (!("geolocation" in navigator)) {
+      pill.className = "err";
+      pill.textContent = "GPS non supportato";
+      return;
+    }
+    if (!window.isSecureContext) {
+      pill.className = "err";
+      pill.textContent = "Serve HTTPS";
+      toast("La posizione funziona solo da un indirizzo https:// (es. GitHub Pages).", 6000);
+      return;
+    }
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
+      enableHighAccuracy: true,
+      maximumAge: 2000,
+      timeout: 20000
+    });
+  }
+
+  centerBtn.addEventListener("click", () => {
+    if (me) {
+      setFollowing(true);
+      map.setView([me.lat, me.lng], Math.max(map.getZoom(), 16));
+    } else {
+      toast("Cerco la tua posizione…");
+      startTracking();
+    }
+  });
+
+  // Quando l'app torna in primo piano riattiva il GPS (iOS lo sospende in background)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") startTracking();
+  });
+
+  startTracking();
+
+  // ---------------- Service worker ----------------
+  if ("serviceWorker" in navigator) {
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").then((reg) => reg.update()).catch(() => {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
